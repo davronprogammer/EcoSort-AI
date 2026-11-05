@@ -6,6 +6,8 @@ EcoSort AI uses a fine-tuned **EfficientNet-B0** model pretrained on ImageNet to
 
 ---
 
+sreamlite - https://ecosort-ai-5uyomnqpsjztrwdjmcvvyy.streamlit.app/ 
+
 ## Project Overview
 
 Waste classification is an important part of modern recycling and waste management systems. Manually identifying different waste materials can be time-consuming and inefficient.
