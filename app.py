@@ -3,6 +3,9 @@ import streamlit as st
 import torch
 import torch.nn as nn
 import json
+import textwrap
+import hashlib
+import html
 
 from PIL import Image, UnidentifiedImageError
 from torchvision import models, transforms
@@ -34,22 +37,19 @@ TOP_K = 3
 # 2. CUSTOM CSS
 # =========================================================
 
-st.markdown("""
+CSS = """
 <style>
 
-/* Main application */
 .stApp {
     background-color: #0e1117;
 }
 
-/* Main content */
 .block-container {
     max-width: 1250px;
     padding-top: 3rem;
     padding-bottom: 3rem;
 }
 
-/* Main heading */
 .main-title {
     font-size: 3.2rem;
     font-weight: 800;
@@ -61,7 +61,7 @@ st.markdown("""
 .subtitle {
     font-size: 1.25rem;
     font-weight: 600;
-    color: #16a34a;
+    color: #22c55e;
     margin-top: 8px;
 }
 
@@ -71,7 +71,6 @@ st.markdown("""
     margin-top: 12px;
 }
 
-/* Drag and drop uploader */
 [data-testid="stFileUploader"] {
     width: 100%;
     border: 2px dashed #16a34a;
@@ -86,7 +85,6 @@ st.markdown("""
     background: rgba(22, 163, 74, 0.10);
 }
 
-/* Buttons */
 .stButton > button {
     width: 100%;
     height: 48px;
@@ -100,11 +98,10 @@ st.markdown("""
     transform: translateY(-2px);
 }
 
-/* Result panel */
 .result-panel {
     background: #18251e;
     border: 1px solid #245c3c;
-    padding: 22px;
+    padding: 24px;
     border-radius: 14px;
     margin-top: 12px;
 }
@@ -112,16 +109,21 @@ st.markdown("""
 .result-label {
     color: #a1a1aa;
     font-size: 0.9rem;
+    margin-bottom: 5px;
 }
 
 .result-value {
     color: #4ade80;
     font-size: 2rem;
     font-weight: 750;
-    margin-top: 5px;
 }
 
-/* Footer */
+.result-divider {
+    border: none;
+    border-top: 1px solid #31533e;
+    margin: 20px 0;
+}
+
 .footer {
     text-align: center;
     color: #71717a;
@@ -130,7 +132,12 @@ st.markdown("""
 }
 
 </style>
-""", unsafe_allow_html=True)
+"""
+
+st.markdown(
+    textwrap.dedent(CSS),
+    unsafe_allow_html=True
+)
 
 
 # =========================================================
@@ -277,17 +284,11 @@ st.caption(
 )
 
 uploaded_file = st.file_uploader(
-
     "Drop your waste image here",
-
     type=["jpg", "jpeg", "png", "webp"],
-
     accept_multiple_files=False,
-
     help="Supported formats: JPG, JPEG, PNG, WEBP",
-
     key="waste_uploader"
-
 )
 
 
@@ -299,6 +300,19 @@ if uploaded_file is not None:
 
     try:
 
+        image_bytes = uploaded_file.getvalue()
+
+        # Unique identifier for each uploaded image
+        upload_id = hashlib.sha256(
+            image_bytes
+        ).hexdigest()
+
+        # Clear previous result when image changes
+        if st.session_state.get("upload_id") != upload_id:
+
+            st.session_state["upload_id"] = upload_id
+            st.session_state["prediction_results"] = None
+
         image = Image.open(uploaded_file).convert("RGB")
 
         st.write("")
@@ -308,9 +322,9 @@ if uploaded_file is not None:
             gap="large"
         )
 
-        # -----------------------------
-        # LEFT: IMAGE PREVIEW
-        # -----------------------------
+        # -------------------------------------------------
+        # LEFT COLUMN: IMAGE PREVIEW
+        # -------------------------------------------------
 
         with col1:
 
@@ -326,12 +340,12 @@ if uploaded_file is not None:
             )
 
             st.caption(
-                f"File size: {uploaded_file.size / 1024:.2f} KB"
+                f"File size: {len(image_bytes) / 1024:.2f} KB"
             )
 
-        # -----------------------------
-        # RIGHT: PREDICTION
-        # -----------------------------
+        # -------------------------------------------------
+        # RIGHT COLUMN: PREDICTION
+        # -------------------------------------------------
 
         with col2:
 
@@ -351,73 +365,78 @@ if uploaded_file is not None:
 
                     st.session_state["prediction_results"] = results
 
-                    st.session_state["prediction_filename"] = (
-                        uploaded_file.name
-                    )
-
             results = st.session_state.get(
                 "prediction_results"
             )
 
-            filename = st.session_state.get(
-                "prediction_filename"
-            )
-
-            if results and filename == uploaded_file.name:
+            if results:
 
                 best = results[0]
 
+                predicted_class = html.escape(
+                    best["class"].replace("-", " ").title()
+                )
+
+                confidence = best["confidence"]
+
                 st.success("Classification completed!")
 
-                st.markdown(
-                    f"""
-                    <div class="result-panel">
+                # Result card
+                result_html = f"""
+                <div class="result-panel">
 
-                        <div class="result-label">
-                            Predicted Category
-                        </div>
-
-                        <div class="result-value">
-                            {best["class"].replace("-", " ").title()}
-                        </div>
-
-                        <br>
-
-                        <div class="result-label">
-                            Prediction Confidence
-                        </div>
-
-                        <div class="result-value">
-                            {best["confidence"]:.2f}%
-                        </div>
-
+                    <div class="result-label">
+                        Predicted Category
                     </div>
-                    """,
+
+                    <div class="result-value">
+                        {predicted_class}
+                    </div>
+
+                    <hr class="result-divider">
+
+                    <div class="result-label">
+                        Prediction Confidence
+                    </div>
+
+                    <div class="result-value">
+                        {confidence:.2f}%
+                    </div>
+
+                </div>
+                """
+
+                st.markdown(
+                    textwrap.dedent(result_html).strip(),
                     unsafe_allow_html=True
                 )
 
                 st.write("")
 
+                # Top 3 predictions
                 st.subheader("Top 3 Predictions")
 
-                for rank, result in enumerate(results, start=1):
+                for rank, result in enumerate(
+                    results,
+                    start=1
+                ):
 
                     class_name = result["class"].replace(
                         "-", " "
                     ).title()
 
-                    confidence = result["confidence"]
+                    probability = result["confidence"]
 
                     st.markdown(
                         f"**{rank}. {class_name}**"
                     )
 
                     st.progress(
-                        min(confidence / 100, 1.0)
+                        min(probability / 100, 1.0)
                     )
 
                     st.caption(
-                        f"Confidence: {confidence:.2f}%"
+                        f"Confidence: {probability:.2f}%"
                     )
 
     except (UnidentifiedImageError, OSError):
@@ -428,8 +447,9 @@ if uploaded_file is not None:
 
     except Exception as error:
 
-        st.error(f"Prediction failed: {error}")
-
+        st.error(
+            f"Prediction failed: {error}"
+        )
 
 else:
 
@@ -462,21 +482,24 @@ for index, class_name in enumerate(CLASS_NAMES):
 # 10. FOOTER
 # =========================================================
 
+st.write("")
 st.divider()
 
+footer_html = """
+<div class="footer">
+
+    <b>EcoSort AI</b><br>
+
+    Intelligent Waste Classification System<br>
+
+    Powered by PyTorch and EfficientNet-B0<br><br>
+
+    12 Categories · Transfer Learning · Deep Learning
+
+</div>
+"""
+
 st.markdown(
-    """
-    <div class="footer">
-
-        <b>EcoSort AI</b><br>
-
-        Intelligent Waste Classification System<br>
-
-        Powered by PyTorch and EfficientNet-B0<br><br>
-
-        12 Categories · Transfer Learning · Deep Learning
-
-    </div>
-    """,
+    textwrap.dedent(footer_html).strip(),
     unsafe_allow_html=True
 )
