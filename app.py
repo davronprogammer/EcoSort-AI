@@ -3,10 +3,9 @@ import streamlit as st
 import torch
 import torch.nn as nn
 import json
-import textwrap
 import hashlib
-import html
 
+from pathlib import Path
 from PIL import Image, UnidentifiedImageError
 from torchvision import models, transforms
 
@@ -26,8 +25,8 @@ DEVICE = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )
 
-MODEL_PATH = "ecosort_efficientnet_b0.pth"
-CLASS_PATH = "class_names.json"
+MODEL_PATH = Path("ecosort_efficientnet_b0.pth")
+CLASS_PATH = Path("class_names.json")
 
 IMAGE_SIZE = 224
 TOP_K = 3
@@ -37,7 +36,7 @@ TOP_K = 3
 # 2. CUSTOM CSS
 # =========================================================
 
-CSS = """
+st.markdown("""
 <style>
 
 .stApp {
@@ -50,34 +49,11 @@ CSS = """
     padding-bottom: 3rem;
 }
 
-.main-title {
-    font-size: 3.2rem;
-    font-weight: 800;
-    letter-spacing: -2px;
-    color: #ffffff;
-    margin-bottom: 0;
-}
-
-.subtitle {
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: #22c55e;
-    margin-top: 8px;
-}
-
-.description {
-    color: #a1a1aa;
-    font-size: 1rem;
-    margin-top: 12px;
-}
-
 [data-testid="stFileUploader"] {
-    width: 100%;
     border: 2px dashed #16a34a;
     border-radius: 16px;
     padding: 18px;
     background: rgba(22, 163, 74, 0.05);
-    transition: all 0.2s ease;
 }
 
 [data-testid="stFileUploader"]:hover {
@@ -87,57 +63,26 @@ CSS = """
 
 .stButton > button {
     width: 100%;
-    height: 48px;
+    min-height: 48px;
     border-radius: 10px;
     font-weight: 700;
-    border: none;
-    transition: all 0.2s ease;
 }
 
-.stButton > button:hover {
-    transform: translateY(-2px);
-}
-
-.result-panel {
+[data-testid="stMetric"] {
     background: #18251e;
     border: 1px solid #245c3c;
-    padding: 24px;
-    border-radius: 14px;
-    margin-top: 12px;
-}
-
-.result-label {
-    color: #a1a1aa;
-    font-size: 0.9rem;
-    margin-bottom: 5px;
-}
-
-.result-value {
-    color: #4ade80;
-    font-size: 2rem;
-    font-weight: 750;
-}
-
-.result-divider {
-    border: none;
-    border-top: 1px solid #31533e;
-    margin: 20px 0;
+    padding: 18px;
+    border-radius: 12px;
 }
 
 .footer {
+    color: #888888;
     text-align: center;
-    color: #71717a;
-    font-size: 0.85rem;
-    padding-top: 25px;
+    padding: 20px 0;
 }
 
 </style>
-"""
-
-st.markdown(
-    textwrap.dedent(CSS),
-    unsafe_allow_html=True
-)
+""", unsafe_allow_html=True)
 
 
 # =========================================================
@@ -146,6 +91,16 @@ st.markdown(
 
 @st.cache_resource
 def load_model():
+
+    if not MODEL_PATH.exists():
+        raise FileNotFoundError(
+            f"Model file not found: {MODEL_PATH}"
+        )
+
+    if not CLASS_PATH.exists():
+        raise FileNotFoundError(
+            f"Class file not found: {CLASS_PATH}"
+        )
 
     with open(CLASS_PATH, "r") as file:
         class_names = json.load(file)
@@ -182,7 +137,7 @@ except Exception as error:
 
 
 # =========================================================
-# 4. IMAGE PREPROCESSING
+# 4. IMAGE TRANSFORM
 # =========================================================
 
 transform = transforms.Compose([
@@ -209,13 +164,13 @@ def predict(image):
 
     image = image.convert("RGB")
 
-    input_tensor = transform(image)
+    tensor = transform(image)
 
-    input_tensor = input_tensor.unsqueeze(0).to(DEVICE)
+    tensor = tensor.unsqueeze(0).to(DEVICE)
 
     with torch.inference_mode():
 
-        outputs = model(input_tensor)
+        outputs = model(tensor)
 
         probabilities = torch.softmax(
             outputs,
@@ -235,11 +190,8 @@ def predict(image):
     ):
 
         results.append({
-
             "class": CLASS_NAMES[index.item()],
-
             "confidence": probability.item() * 100
-
         })
 
     return results
@@ -249,27 +201,16 @@ def predict(image):
 # 6. HEADER
 # =========================================================
 
-st.markdown(
-    '<div class="main-title">EcoSort AI</div>',
-    unsafe_allow_html=True
+st.title("EcoSort AI")
+
+st.subheader("AI-Powered Waste Classification")
+
+st.write(
+    "Upload an image and let Artificial Intelligence "
+    "identify its waste category using a fine-tuned "
+    "EfficientNet-B0 model."
 )
 
-st.markdown(
-    '<div class="subtitle">AI-Powered Waste Classification</div>',
-    unsafe_allow_html=True
-)
-
-st.markdown(
-    """
-    <div class="description">
-        Upload an image and let Artificial Intelligence
-        identify its waste category using EfficientNet-B0.
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-st.write("")
 st.divider()
 
 
@@ -280,7 +221,8 @@ st.divider()
 st.subheader("Upload your image")
 
 st.caption(
-    "Drag and drop an image below or browse files from your device."
+    "Drag and drop an image below or browse files "
+    "from your device."
 )
 
 uploaded_file = st.file_uploader(
@@ -302,12 +244,12 @@ if uploaded_file is not None:
 
         image_bytes = uploaded_file.getvalue()
 
-        # Unique identifier for each uploaded image
+        # Identify uploaded image
         upload_id = hashlib.sha256(
             image_bytes
         ).hexdigest()
 
-        # Clear previous result when image changes
+        # Reset old prediction when image changes
         if st.session_state.get("upload_id") != upload_id:
 
             st.session_state["upload_id"] = upload_id
@@ -315,15 +257,13 @@ if uploaded_file is not None:
 
         image = Image.open(uploaded_file).convert("RGB")
 
-        st.write("")
-
         col1, col2 = st.columns(
             [1.1, 1],
             gap="large"
         )
 
         # -------------------------------------------------
-        # LEFT COLUMN: IMAGE PREVIEW
+        # LEFT COLUMN: IMAGE
         # -------------------------------------------------
 
         with col1:
@@ -336,7 +276,8 @@ if uploaded_file is not None:
             )
 
             st.caption(
-                f"Image dimensions: {image.width} × {image.height}"
+                f"Image dimensions: "
+                f"{image.width} × {image.height}"
             )
 
             st.caption(
@@ -344,7 +285,7 @@ if uploaded_file is not None:
             )
 
         # -------------------------------------------------
-        # RIGHT COLUMN: PREDICTION
+        # RIGHT COLUMN: CLASSIFICATION
         # -------------------------------------------------
 
         with col2:
@@ -363,7 +304,9 @@ if uploaded_file is not None:
 
                     results = predict(image)
 
-                    st.session_state["prediction_results"] = results
+                    st.session_state[
+                        "prediction_results"
+                    ] = results
 
             results = st.session_state.get(
                 "prediction_results"
@@ -373,47 +316,27 @@ if uploaded_file is not None:
 
                 best = results[0]
 
-                predicted_class = html.escape(
-                    best["class"].replace("-", " ").title()
-                )
-
-                confidence = best["confidence"]
-
                 st.success("Classification completed!")
 
-                # Result card
-                result_html = f"""
-                <div class="result-panel">
+                # Result card using native Streamlit components
+                with st.container(border=True):
 
-                    <div class="result-label">
-                        Predicted Category
-                    </div>
+                    st.caption("PREDICTED CATEGORY")
 
-                    <div class="result-value">
-                        {predicted_class}
-                    </div>
+                    st.subheader(
+                        best["class"].replace(
+                            "-", " "
+                        ).title()
+                    )
 
-                    <hr class="result-divider">
-
-                    <div class="result-label">
-                        Prediction Confidence
-                    </div>
-
-                    <div class="result-value">
-                        {confidence:.2f}%
-                    </div>
-
-                </div>
-                """
-
-                st.markdown(
-                    textwrap.dedent(result_html).strip(),
-                    unsafe_allow_html=True
-                )
-
-                st.write("")
+                    st.metric(
+                        label="Prediction Confidence",
+                        value=f"{best['confidence']:.2f}%"
+                    )
 
                 # Top 3 predictions
+                st.write("")
+
                 st.subheader("Top 3 Predictions")
 
                 for rank, result in enumerate(
@@ -425,24 +348,25 @@ if uploaded_file is not None:
                         "-", " "
                     ).title()
 
-                    probability = result["confidence"]
+                    confidence = result["confidence"]
 
                     st.markdown(
                         f"**{rank}. {class_name}**"
                     )
 
                     st.progress(
-                        min(probability / 100, 1.0)
+                        min(confidence / 100, 1.0)
                     )
 
                     st.caption(
-                        f"Confidence: {probability:.2f}%"
+                        f"Confidence: {confidence:.2f}%"
                     )
 
     except (UnidentifiedImageError, OSError):
 
         st.error(
-            "Invalid image. Please upload a valid JPG, PNG or WEBP file."
+            "Invalid image. Please upload a valid "
+            "JPG, PNG or WEBP file."
         )
 
     except Exception as error:
@@ -462,16 +386,15 @@ else:
 # 9. SUPPORTED CATEGORIES
 # =========================================================
 
-st.write("")
 st.divider()
 
 st.subheader("Supported Waste Categories")
 
-category_cols = st.columns(4)
+category_columns = st.columns(4)
 
 for index, class_name in enumerate(CLASS_NAMES):
 
-    with category_cols[index % 4]:
+    with category_columns[index % 4]:
 
         st.markdown(
             f"- {class_name.replace('-', ' ').title()}"
@@ -482,24 +405,16 @@ for index, class_name in enumerate(CLASS_NAMES):
 # 10. FOOTER
 # =========================================================
 
-st.write("")
 st.divider()
 
-footer_html = """
-<div class="footer">
-
-    <b>EcoSort AI</b><br>
-
-    Intelligent Waste Classification System<br>
-
-    Powered by PyTorch and EfficientNet-B0<br><br>
-
-    12 Categories · Transfer Learning · Deep Learning
-
-</div>
-"""
-
 st.markdown(
-    textwrap.dedent(footer_html).strip(),
+    """
+    <div class="footer">
+        <b>EcoSort AI</b><br>
+        Intelligent Waste Classification System<br>
+        Powered by PyTorch and EfficientNet-B0<br><br>
+        12 Categories · Transfer Learning · Deep Learning
+    </div>
+    """,
     unsafe_allow_html=True
 )
